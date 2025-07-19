@@ -63,6 +63,9 @@ parser.add_argument("--compare_dataset", default=False, type = bool)
 parser.add_argument("--epoch_variance", default=False, type = bool)
 parser.add_argument("--smoothing", action="store_false", dest="smoothing", help="Disable smoothing (default: enabled)")
 parser.add_argument("--retrain", default=False, type = bool)
+parser.add_argument("--dp", action="store_true", help="Enable differential privacy on client updates")
+parser.add_argument("--dp-clip", type=float, default=1.0, help="L2 norm clip for DP (default: 1.0)")
+parser.add_argument("--dp-noise", type=float, default=0.1, help="Noise stddev for DP (default: 0.1)")
 parser.set_defaults(smoothing=True)
 args = parser.parse_args()
 
@@ -119,6 +122,29 @@ def build_model(input_dim: int) -> keras.Model:
     model.compile(optimizer="adam", loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
+def dp_clip_and_noise(weights, l2_norm_clip, noise_std, seed=None):
+    """
+    Clips the model update to l2_norm_clip and adds Gaussian noise.
+    Args:
+        weights: List of np.arrays (model layers).
+        l2_norm_clip: float, maximum L2 norm.
+        noise_std: float, noise standard deviation.
+        seed: int or None.
+    Returns:
+        List of np.arrays.
+    """
+    # Flatten all weights to compute global norm
+    flat = np.concatenate([w.flatten() for w in weights])
+    norm = np.linalg.norm(flat)
+    # Clip
+    if norm > l2_norm_clip:
+        scale = l2_norm_clip / (norm + 1e-10)
+        weights = [w * scale for w in weights]
+    # Add noise
+    rng = np.random.default_rng(seed)
+    noisy_weights = [w + rng.normal(0, noise_std, w.shape) for w in weights]
+    return noisy_weights
+
 
 class FLClient(fl.client.NumPyClient):
     def __init__(
@@ -150,7 +176,16 @@ class FLClient(fl.client.NumPyClient):
             batch_size=32,
             verbose=0,
         )
-        return self.model.get_weights(), len(self.x_train), {}
+        updated_weights = self.model.get_weights()
+
+        # Differential Privacy: clip and add noise if enabled
+        if args.dp:
+            # Use unique seed for each client for reproducibility
+            seed = int(self.cid) + 42
+            updated_weights = dp_clip_and_noise(
+                updated_weights, args.dp_clip, args.dp_noise, seed=seed
+            )
+        return updated_weights, len(self.x_train), {}
 
     def evaluate(self, parameters, config):
         self.model.set_weights(parameters)
