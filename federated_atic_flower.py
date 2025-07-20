@@ -92,6 +92,7 @@ def load_features(path: str = "SP500_classification.csv") -> pd.DataFrame:
         sys.exit(f"Error: '{path}' not found.")
     df = pd.read_csv(path, index_col=0).astype(np.float32)
     df.columns = df.columns.str.lower()
+    index_array = df.index.to_numpy()
     df = df.reset_index(drop=True)
     # Combine columns starting with the same Lag_'id' (from 1-5) into one column as np arrays
     for lag_id in range(15, 0, -1):
@@ -109,7 +110,7 @@ def load_features(path: str = "SP500_classification.csv") -> pd.DataFrame:
         # Each row is a 1D np array; stack them to make a 2D array per row
         df["features"] = df[lag_all_cols].apply(lambda row: np.stack(row.values), axis=1)
         df = df.drop(columns=lag_all_cols)
-    return df
+    return df, index_array
 
 
 def build_model(input_dim: int) -> keras.Model:
@@ -382,7 +383,7 @@ def quarters_client_data(months,X_train_all, y_train_all):
     return client_slices
 
 def retrain_data_loading(data):
-    df = load_features("FTSE100_classification.csv")
+    df,_ = load_features("FTSE100_classification.csv")
     # INSERT_YOUR_CODE
     # Shuffle the dataframe before splitting, to match the main data_loading() logic
     df = df.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
@@ -400,7 +401,7 @@ def retrain_data_loading(data):
 
 def data_loading():
     # Load and split
-    df = load_features()
+    df,dates = load_features()
     # Randomly shuffle and split the dataframe into 80% train, 20% test
     shuffled_df = df.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
     split = int(len(shuffled_df) * 0.8)
@@ -416,7 +417,8 @@ def data_loading():
         client_slices = random_client_data(len(train_df), X_train, y_train)
     elif args.data_dist == 'quarters':
         if args.num_clients == 4:
-            client_slices = quarters_client_data(train_df['month'].to_numpy(), X_train, y_train)
+            months = np.array([int(str(date).split("/")[0]) for date in dates[:len(train_df)]])
+            client_slices = quarters_client_data(months, X_train, y_train)
         else:
             sys.exit("Error: quarters data_dist requires num_clients == 4")
     # Store all data in a dict
@@ -434,8 +436,8 @@ def data_loading():
 
 def data_loading_compare():
     # Load and split both datasets
-    df1 = load_features()
-    df2 = load_features("DAX_classification.csv")
+    df1,_ = load_features()
+    df2,_ = load_features("DAX_classification.csv")
     # Apply shuffling to both datasets before splitting
     df1 = df1.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
     df2 = df2.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
