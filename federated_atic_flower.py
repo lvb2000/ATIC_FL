@@ -87,7 +87,7 @@ local_hist_accs = local_hist_maes
 central_hist_bce = central_hist_loss
 central_hist_acc = central_hist_mae
 
-def load_features(path: str = "SP500_classification.csv") -> pd.DataFrame:
+def load_features(path: str = "SP500_classification_easy.csv") -> pd.DataFrame:
     if not os.path.exists(path):
         sys.exit(f"Error: '{path}' not found.")
     df = pd.read_csv(path, index_col=0).astype(np.float32)
@@ -95,29 +95,40 @@ def load_features(path: str = "SP500_classification.csv") -> pd.DataFrame:
     index_array = df.index.to_numpy()
     df = df.reset_index(drop=True)
     # Combine columns starting with the same Lag_'id' (from 1-5) into one column as np arrays
-    for lag_id in range(15, 0, -1):
+    for lag_id in range(5, 0, -1):
         name = f"feature_{lag_id}"
         prefix = f"lag_{lag_id}"
         date_prefix = f"lag{lag_id}"
         lag_cols = [col for col in df.columns if (col.lower().startswith(prefix) or col.startswith(date_prefix))]
-        if len(lag_cols) > 1:
-            # Combine the columns into a single column of np arrays
-            df[name] = df[lag_cols].apply(lambda row: np.array(row.values, dtype=np.float32), axis=1)
-            df = df.drop(columns=lag_cols)
+        # Combine the columns into a single column of np arrays
+        #df[name] = df[lag_cols].apply(lambda row: float(row.values[0]), axis=1)
+        df[name] = df[lag_cols].apply(lambda row: row.values, axis=1)
+        df = df.drop(columns=lag_cols)
+    print(df)
     # Combine all columns whose names start with "Lag_" or "lag_" into a single column "Lag_all" as np arrays
     lag_all_cols = [col for col in df.columns if col.lower().startswith("feature")]
     if len(lag_all_cols) > 1:
         # Each row is a 1D np array; stack them to make a 2D array per row
         df["features"] = df[lag_all_cols].apply(lambda row: np.stack(row.values), axis=1)
         df = df.drop(columns=lag_all_cols)
+    # Print the first row's "features" column, looping over the first dimension if it is 2D
+    print(df.head(10))
+    first_row = df.iloc[0]
+    features = first_row["features"]
+    if isinstance(features, np.ndarray) and features.ndim == 2:
+        for i in range(features.shape[0]):
+            print(f"features[{i}]: {features[i]}")
+    else:
+        print("First row 'features' is not 2D:", features)
     return df, index_array
 
 
 def build_model(input_dim: int) -> keras.Model:
     model = keras.Sequential([
-        keras.layers.Input(shape=(input_dim[1], input_dim[2],)),
-        keras.layers.LSTM(units=3, activation='relu'),
-        keras.layers.Dropout(0.5),
+        #keras.layers.Input(shape=(input_dim[1],1,)),
+        keras.layers.Input(shape=(input_dim[1],input_dim[2],)),
+        keras.layers.LSTM(units=4, activation='relu'),
+        keras.layers.Dropout(0.2),
         keras.layers.Dense(units=1, activation='sigmoid'),
     ])
     model.compile(optimizer="adam", loss='binary_crossentropy', metrics=['accuracy'])
@@ -308,7 +319,7 @@ def plot_paper_figure(local_hist_bces, local_hist_accs,
             local_hist_bces, local_hist_accs,
             fed_bces, fed_accs,
             central_hist_bce, central_hist_acc,
-            window=3,
+            window=5,
             retrain_hist_bce=retrain_hist_bce,
             retrain_hist_acc=retrain_hist_acc,
             scratch_hist_bce=scratch_hist_bce,
@@ -317,12 +328,32 @@ def plot_paper_figure(local_hist_bces, local_hist_accs,
     
     rounds = np.arange(1, len(local_hist_bces[0]) + 1)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4), sharex=True)
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
 
     # --- BCE panel -------------------------------------------------
-    for cid, losses in enumerate(local_hist_bces):
-        ax1.plot(rounds, losses, color=f"C{cid+1}", linewidth=1,
-                 label=f"Local {cid}", alpha=0.7)
+    # --- BCE panel: local mean ±1σ --------------------------------
+    # Stack into array of shape (n_clients, n_rounds)
+    local_arr = np.stack(local_hist_bces, axis=0)
+    # Compute mean and std over clients
+    mean_local_bce = local_arr.mean(axis=0)
+    std_local_bce  = local_arr.std(axis=0)
+    # Shade between (mean - std) and (mean + std)
+    ax1.fill_between(
+    rounds,
+    mean_local_bce - std_local_bce,
+    mean_local_bce + std_local_bce,
+    color="gray",
+    alpha=0.3,
+    label="Local mean ±1σ"
+    )
+# (Optional) also plot the mean line itself
+    ax1.plot(
+    rounds,
+    mean_local_bce,
+    color="gray",
+    linewidth=2,
+    linestyle="--"
+    )
     ax1.plot(rounds, central_hist_bce, "k--", linewidth=2,
              label="Centralised")
     ax1.plot(rounds, fed_bces, color="C0", linewidth=2,
@@ -338,8 +369,26 @@ def plot_paper_figure(local_hist_bces, local_hist_accs,
     ax1.set_ylabel("BCE")
     ax1.grid(alpha=0.3)
     # --- Accuracy panel -------------------------------------------------
-    for cid, accs in enumerate(local_hist_accs):
-        ax2.plot(rounds, accs, color=f"C{cid+1}", linewidth=1, alpha=0.7)
+    # --- Accuracy panel: local mean ±1σ ----------------------------
+    local_acc_arr = np.stack(local_hist_accs, axis=0)
+    mean_local_acc = local_acc_arr.mean(axis=0)
+    std_local_acc  = local_acc_arr.std(axis=0)
+    ax2.fill_between(
+    rounds,
+    mean_local_acc - std_local_acc,
+    mean_local_acc + std_local_acc,
+    color="gray",
+    alpha=0.3,
+    label="Local mean ±1σ"
+    )
+    ax2.plot(
+    rounds,
+    mean_local_acc,
+    color="gray",
+    linewidth=2,
+    linestyle="--"
+    )
+
     ax2.plot(rounds, central_hist_acc, "k--", linewidth=2)
     ax2.plot(rounds, fed_accs, "C0", linewidth=2)
     if retrain_hist_acc is not None:
@@ -382,11 +431,35 @@ def quarters_client_data(months,X_train_all, y_train_all):
         client_slices.append((X_train_all[client_indices], y_train_all[client_indices]))
     return client_slices
 
+# INSERT_YOUR_CODE
+def custom_monthly_split(shuffled_df, dates):
+    """
+    Splits the dataframe into train and test sets such that every 5th month (from Jan 2015 to Dec 2023)
+    is assigned to the test set, and the rest to the train set.
+    """
+    # Convert dates to pandas datetime if not already
+    date_series = pd.to_datetime(dates)
+    # Create a DataFrame to align indices
+    idx_df = pd.DataFrame({
+        "date": date_series,
+        "orig_idx": np.arange(len(date_series))
+    })
+    # Only use dates within the range 2015-01-01 to 2023-12-31
+    idx_df = idx_df[(idx_df["date"] >= pd.Timestamp("2015-01-01")) & (idx_df["date"] <= pd.Timestamp("2023-12-31"))]
+    # Assign a "month_number" starting from 0 for Jan 2015
+    idx_df["month_number"] = (idx_df["date"].dt.year - 2015) * 12 + (idx_df["date"].dt.month - 1)
+    # Mark every 5th month as test
+    idx_df["is_test"] = idx_df["month_number"] % 5 == 0
+    # Get indices for test and train
+    test_indices = idx_df[idx_df["is_test"]]["orig_idx"].values
+    train_indices = idx_df[~idx_df["is_test"]]["orig_idx"].values
+    # Select rows from shuffled_df
+    test_df = shuffled_df.iloc[test_indices].reset_index(drop=True)
+    train_df = shuffled_df.iloc[train_indices].reset_index(drop=True)
+    return train_df, test_df
+
 def retrain_data_loading(data):
-    df,_ = load_features("FTSE100_classification.csv")
-    # INSERT_YOUR_CODE
-    # Shuffle the dataframe before splitting, to match the main data_loading() logic
-    df = df.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
+    df,_ = load_features("FTSE100_classification_easy.csv")
     split = int(len(df) * 0.8)
     train_df, test_df = df.iloc[:split], df.iloc[split:]
     X_test = np.stack(test_df["features"].to_numpy())
@@ -402,10 +475,12 @@ def retrain_data_loading(data):
 def data_loading():
     # Load and split
     df,dates = load_features()
-    # Randomly shuffle and split the dataframe into 80% train, 20% test
-    shuffled_df = df.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
-    split = int(len(shuffled_df) * 0.8)
-    train_df, test_df = shuffled_df.iloc[:split], shuffled_df.iloc[split:]
+    split = int(len(df) * 0.8)
+    train_df = df.iloc[:split]
+    test_df = df.iloc[split:]
+    # INSERT_YOUR_CODE
+    print(f"Train set size: {len(train_df)} samples")
+    print(f"Test set size: {len(test_df)} samples")
     # (samples, horizon, feature_dim)
     # Prepare test data
     X_test = np.stack(test_df["features"].to_numpy())
@@ -437,10 +512,7 @@ def data_loading():
 def data_loading_compare():
     # Load and split both datasets
     df1,_ = load_features()
-    df2,_ = load_features("DAX_classification.csv")
-    # Apply shuffling to both datasets before splitting
-    df1 = df1.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
-    df2 = df2.sample(frac=1, random_state=RANDOM_SEED).reset_index(drop=True)
+    df2,_ = load_features("DAX_classification_easy.csv")
     # Split each dataset into train/test
     split1 = int(len(df1) * 0.8)
     train_df1, test_df1 = df1.iloc[:split1], df1.iloc[split1:]
