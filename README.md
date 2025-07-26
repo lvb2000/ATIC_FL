@@ -11,29 +11,37 @@ This project demonstrates federated learning for financial time series classific
 
 The notebook `data_preproces.ipynb` processes raw financial data (e.g., FTSE100, DAX, SP500) from CSV files. The steps are:
 
-1. **Cleaning and Normalization**
-   - Converts price columns from European formats (e.g., '1.234,56') to floats.
-   - Computes daily log returns and standardizes them (z-score) using only the training split (first 80%).
+1. **Data Cleaning**
+   - Converts price columns from European formats (e.g., '1.234,56') to floats using a custom conversion function.
+   - Computes daily log returns from the cleaned price data.
 
 2. **Target Construction**
-   - The prediction target is whether the cumulative log return over a 5-day horizon is positive (binary: 1 if positive, 0 otherwise).
+   - Creates a 5-day forward cumulative log return window.
+   - The prediction target is binary: 1 if the absolute cumulative return exceeds the median absolute return, 0 otherwise.
+   - This creates a more balanced classification problem (approximately 50% positive/negative samples).
 
 3. **Feature Engineering**
-   - Adds up to 15 lagged log return features (Lag_1, ..., Lag_15).
-   - Adds lagged date columns and extracts cyclical features (day of week, month, day of month) for each lag.
-   - Cyclical features are also standardized (using only the training split).
+   - Adds 5 lagged target features (Lag_1, ..., Lag_5) using future target values shifted by 1-5 days.
+   - Adds lagged date columns for each lag and extracts cyclical temporal features:
+     - Day of week (sin/cos encoding)
+     - Month (sin/cos encoding) 
+     - Day of month (sin/cos encoding)
+   - All cyclical features are standardized using only the training split (first 80% of data).
 
 4. **Final Format**
-   - Drops unnecessary columns (raw dates, unneeded features).
-   - Saves the processed data as `*_classification.csv` (e.g., `FTSE100_classification.csv`).
+   - Drops unnecessary columns (raw dates, unneeded temporal features).
+   - Saves the processed data as `*_classification_easy.csv` (e.g., `FTSE100_classification_easy.csv`).
 
 ### Data Format
 - **Date Range:** 01.01.2015 to 31.12.2023
 - **Columns:**
   - `Date`: The date of the observation
-  - `Target`: Binary label (1 if 5-day forward cumulative return > 0, else 0)
-  - `Lag_1` ... `Lag_15`: Lagged standardized log returns
-  - `lagX_dow_sin`, `lagX_dow_cos`, `lagX_month_sin`, ...: Standardized cyclical features for each lag
+  - `LogReturn`: Daily log return (not standardized)
+  - `Target`: Binary label (1 if absolute 5-day forward cumulative return > median, else 0)
+  - `Lag_1` ... `Lag_5`: Lagged target values (future target shifted by 1-5 days)
+  - `lagX_dow_sin`, `lagX_dow_cos`: Standardized cyclical day-of-week features for each lag
+  - `lagX_month_sin`, `lagX_month_cos`: Standardized cyclical month features for each lag
+  - `lagX_dom_sin`, `lagX_dom_cos`: Standardized cyclical day-of-month features for each lag
 
 ---
 
@@ -92,7 +100,7 @@ python federated_atic_flower.py --role client --cid 2
 ---
 
 ## Example Workflow
-1. Preprocess your raw data using `data_preproces.ipynb` to generate `*_classification.csv` files.
+1. Preprocess your raw data using `data_preproces.ipynb` to generate `*_classification_easy.csv` files.
 2. Run the federated learning experiments as described above.
 3. Analyze the results to compare local, centralized, and federated learning in a realistic financial setting.
 

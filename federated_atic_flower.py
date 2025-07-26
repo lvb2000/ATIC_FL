@@ -64,8 +64,8 @@ parser.add_argument("--epoch_variance", default=False, type = bool)
 parser.add_argument("--smoothing", action="store_false", dest="smoothing", help="Disable smoothing (default: enabled)")
 parser.add_argument("--retrain", default=False, type = bool)
 parser.add_argument("--dp", action="store_true", help="Enable differential privacy on client updates")
-parser.add_argument("--dp-clip", type=float, default=1.0, help="L2 norm clip for DP (default: 1.0)")
-parser.add_argument("--dp-noise", type=float, default=0.1, help="Noise stddev for DP (default: 0.1)")
+parser.add_argument("--dp_clip", type=float, default=1.0, help="L2 norm clip for DP (default: 1.0)")
+parser.add_argument("--dp_noise", type=float, default=0.01, help="Noise stddev for DP (default: 0.1)")
 parser.set_defaults(smoothing=True)
 args = parser.parse_args()
 
@@ -402,7 +402,8 @@ def plot_paper_figure(local_hist_bces, local_hist_accs,
     ax2.set_ylabel("Accuracy")
     ax2.grid(alpha=0.3)
     handles, labels = ax1.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=5)
+    fig.legend(handles, labels, loc="lower center", ncol=3)
+    # (left,bottom,right,top)
     fig.tight_layout(rect=[0, 0.12, 1, 1])
     plt.show()
 
@@ -462,6 +463,11 @@ def retrain_data_loading(data):
     df,_ = load_features("FTSE100_classification_easy.csv")
     split = int(len(df) * 0.8)
     train_df, test_df = df.iloc[:split], df.iloc[split:]
+    # Only use a random 10% of the train set
+    n_train = len(train_df)
+    n_subset = max(1, int(n_train * 0.1))
+    subset_indices = np.random.choice(n_train, n_subset, replace=False)
+    train_df = train_df.iloc[subset_indices].reset_index(drop=True)
     X_test = np.stack(test_df["features"].to_numpy())
     y_test = test_df["target"].to_numpy()
     X_train = np.stack(train_df["features"].to_numpy())
@@ -475,6 +481,7 @@ def retrain_data_loading(data):
 def data_loading():
     # Load and split
     df,dates = load_features()
+    #train_df, test_df = custom_monthly_split(df,dates)
     split = int(len(df) * 0.8)
     train_df = df.iloc[:split]
     test_df = df.iloc[split:]
