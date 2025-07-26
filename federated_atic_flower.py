@@ -87,7 +87,7 @@ local_hist_accs = local_hist_maes
 central_hist_bce = central_hist_loss
 central_hist_acc = central_hist_mae
 
-def load_features(path: str = "SP500_classification_easy.csv") -> pd.DataFrame:
+def load_features(path: str = "Data/SP500/SP500_classification_easy.csv") -> pd.DataFrame:
     if not os.path.exists(path):
         sys.exit(f"Error: '{path}' not found.")
     df = pd.read_csv(path, index_col=0).astype(np.float32)
@@ -460,7 +460,7 @@ def custom_monthly_split(shuffled_df, dates):
     return train_df, test_df
 
 def retrain_data_loading(data):
-    df,_ = load_features("FTSE100_classification_easy.csv")
+    df,_ = load_features("Data/FTSE100/FTSE100_classification_easy.csv")
     split = int(len(df) * 0.8)
     train_df, test_df = df.iloc[:split], df.iloc[split:]
     # Only use a random 10% of the train set
@@ -519,7 +519,7 @@ def data_loading():
 def data_loading_compare():
     # Load and split both datasets
     df1,_ = load_features()
-    df2,_ = load_features("DAX_classification_easy.csv")
+    df2,_ = load_features("Data/DAX/DAX_classification_easy.csv")
     # Split each dataset into train/test
     split1 = int(len(df1) * 0.8)
     train_df1, test_df1 = df1.iloc[:split1], df1.iloc[split1:]
