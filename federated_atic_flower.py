@@ -120,6 +120,9 @@ def load_features(path: str = "Data/SP500/SP500_classification_easy.csv") -> pd.
             print(f"features[{i}]: {features[i]}")
     else:
         print("First row 'features' is not 2D:", features)
+    # Invert the order of the whole dataset (reverse rows)
+    df = df.iloc[::-1].reset_index(drop=True)
+    index_array = index_array[::-1]
     return df, index_array
 
 
